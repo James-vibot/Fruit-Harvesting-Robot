@@ -1,0 +1,301 @@
+<launch>
+
+  <!-- By default, we do not start a database (it can be large) -->
+  <arg name="db" default="false" />
+  <!-- Allow user to specify database location -->
+  <arg name="db_path" default="$(find mm_moveit_config)/default_warehouse_mongo_db" />
+
+  <!-- By default, we are not in debug mode -->
+  <arg name="debug" default="false" />
+
+  <!-- Load the URDF, SRDF and other .yaml configuration files on the param server -->
+  <include file="$(find mm_moveit_config)/launch/planning_context.launch">
+    <arg name="load_robot_description" value="true"/>
+            <!-- ########### $(find mm_moveit_config)/launch/planning_context.launch -->
+            <launch>
+              <!-- By default we do not overwrite the URDF. Change the following to true to change the default behavior -->
+              <arg name="load_robot_description" default="false"/>
+
+              <!-- The name of the parameter under which the URDF is loaded -->
+              <arg name="robot_description" default="robot_description"/>
+
+              <!-- Load universal robot description format (URDF) -->
+              <param if="$(arg load_robot_description)" name="$(arg robot_description)" textfile="$(find mm_description)/urdf/mobile_manipulator.urdf"/>
+
+              <!-- The semantic description that corresponds to the URDF -->
+              <param name="$(arg robot_description)_semantic" textfile="$(find mm_moveit_config)/config/mm.srdf" />
+              
+              <!-- Load updated joint limits (override information from URDF) -->
+              <group ns="$(arg robot_description)_planning">
+                <rosparam command="load" file="$(find mm_moveit_config)/config/joint_limits.yaml"/>
+              </group>
+
+              <!-- Load default settings for kinematics; these settings are overridden by settings in a node's namespace -->
+              <group ns="$(arg robot_description)_kinematics">
+                <rosparam command="load" file="$(find mm_moveit_config)/config/kinematics.yaml"/>
+              </group>
+              
+            </launch>
+            <!-- ########### end of $(find mm_moveit_config)/launch/planning_context.launch -->
+  </include>
+
+  <!-- If needed, broadcast static tf for robot root -->
+    <node pkg="tf" type="static_transform_publisher" name="virtual_joint_broadcaster_0" args="0 0 0 0 0 0 odom base_link 100" />
+
+
+  <!-- We do not have a robot connected, so publish fake joint states -->
+  <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher">
+    <param name="/use_gui" value="false"/>
+    <rosparam param="/source_list">[/move_group/fake_controller_joint_states]</rosparam>
+  </node>
+
+  <!-- Given the published joint states, publish tf for the robot links -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" respawn="true" output="screen" />
+
+  <!-- Run the main MoveIt executable without trajectory execution (we do not have controllers configured by default) -->
+  <include file="$(find mm_moveit_config)/launch/move_group.launch">
+    <arg name="allow_trajectory_execution" value="true"/>
+    <arg name="fake_execution" value="true"/>
+    <arg name="info" value="true"/>
+    <arg name="debug" value="$(arg debug)"/>
+            <!-- ########### $(find mm_moveit_config)/launch/move_group.launch -->
+            <launch>
+              <include file="$(find mm_moveit_config)/launch/planning_context.launch" >
+                    <!-- ########### $(find mm_moveit_config)/launch/planning_context.launch -->
+                    <launch>
+                      <!-- By default we do not overwrite the URDF. Change the following to true to change the default behavior -->
+                      <arg name="load_robot_description" default="false"/>
+
+                      <!-- The name of the parameter under which the URDF is loaded -->
+                      <arg name="robot_description" default="robot_description"/>
+
+                      <!-- Load universal robot description format (URDF) -->
+                      <param if="$(arg load_robot_description)" name="$(arg robot_description)" textfile="$(find mm_description)/urdf/mobile_manipulator.urdf"/>
+
+                      <!-- The semantic description that corresponds to the URDF -->
+                      <param name="$(arg robot_description)_semantic" textfile="$(find mm_moveit_config)/config/mm.srdf" />
+                      
+                      <!-- Load updated joint limits (override information from URDF) -->
+                      <group ns="$(arg robot_description)_planning">
+                        <rosparam command="load" file="$(find mm_moveit_config)/config/joint_limits.yaml"/>
+                      </group>
+
+                      <!-- Load default settings for kinematics; these settings are overridden by settings in a node's namespace -->
+                      <group ns="$(arg robot_description)_kinematics">
+                        <rosparam command="load" file="$(find mm_moveit_config)/config/kinematics.yaml"/>
+                      </group>
+                      
+                    </launch>
+                    <!-- ########### end of $(find mm_moveit_config)/launch/planning_context.launch -->
+                </include>
+
+              <!-- GDB Debug Option -->
+              <arg name="debug" default="false" />
+              <arg unless="$(arg debug)" name="launch_prefix" value="" />
+              <arg     if="$(arg debug)" name="launch_prefix"
+	               value="gdb -x $(find mm_moveit_config)/launch/gdb_settings.gdb --ex run --args" />
+
+              <!-- Verbose Mode Option -->
+              <arg name="info" default="$(arg debug)" />
+              <arg unless="$(arg info)" name="command_args" value="" />
+              <arg     if="$(arg info)" name="command_args" value="--debug" />
+
+              <!-- move_group settings -->
+              <arg name="allow_trajectory_execution" default="true"/>
+              <arg name="fake_execution" default="false"/>
+              <arg name="max_safe_path_cost" default="1"/>
+              <arg name="jiggle_fraction" default="0.05" />
+              <arg name="publish_monitored_planning_scene" default="true"/>
+
+              <!-- Planning Functionality -->
+              <include ns="move_group" file="$(find mm_moveit_config)/launch/planning_pipeline.launch.xml">
+                <arg name="pipeline" value="ompl" />
+                        <!-- ########### $(find mm_moveit_config)/launch/planning_pipeline.launch.xml -->
+                        <launch>
+
+                          <!-- This file makes it easy to include different planning pipelines; 
+                               It is assumed that all planning pipelines are named XXX_planning_pipeline.launch  -->  
+
+                          <arg name="pipeline" default="ompl" />
+
+                          <include file="$(find mm_moveit_config)/launch/$(arg pipeline)_planning_pipeline.launch.xml" >
+                                <!-- ########### $(find mm_moveit_config)/launch/$(arg pipeline)_planning_pipeline.launch.xml -->
+                                <launch>
+                                  <!-- OMPL Plugin for MoveIt! -->
+                                  <arg name="planning_plugin" value="ompl_interface/OMPLPlanner" />
+
+                                  <!-- The request adapters (plugins) used when planning with OMPL. 
+                                       ORDER MATTERS -->
+                                  <arg name="planning_adapters" value="default_planner_request_adapters/AddTimeParameterization
+				                                       default_planner_request_adapters/FixWorkspaceBounds
+				                                       default_planner_request_adapters/FixStartStateBounds
+				                                       default_planner_request_adapters/FixStartStateCollision
+				                                       default_planner_request_adapters/FixStartStatePathConstraints" />
+
+                                  <arg name="start_state_max_bounds_error" value="0.1" />
+
+                                  <param name="planning_plugin" value="$(arg planning_plugin)" />
+                                  <param name="request_adapters" value="$(arg planning_adapters)" />
+                                  <param name="start_state_max_bounds_error" value="$(arg start_state_max_bounds_error)" />
+
+                                  <rosparam command="load" file="$(find mm_moveit_config)/config/ompl_planning.yaml"/>
+
+                                </launch>
+                                <!-- ########### end of $(find mm_moveit_config)/launch/$(arg pipeline)_planning_pipeline.launch.xml -->
+                          </include>
+
+                        </launch>
+                        <!-- ########### end of $(find mm_moveit_config)/launch/planning_pipeline.launch.xml -->
+              </include>
+
+              <!-- Trajectory Execution Functionality -->
+              <include ns="move_group" file="$(find mm_moveit_config)/launch/trajectory_execution.launch.xml" if="$(arg allow_trajectory_execution)">
+                <arg name="moveit_manage_controllers" value="true" />
+                <arg name="moveit_controller_manager" value="mm" unless="$(arg fake_execution)"/>
+                <arg name="moveit_controller_manager" value="fake" if="$(arg fake_execution)"/>
+                        <!-- ########### $(find mm_moveit_config)/launch/trajectory_execution.launch.xml -->
+                        <launch>
+                          <!-- This file makes it easy to include the settings for trajectory execution  -->  
+
+                          <!-- Flag indicating whether MoveIt! is allowed to load/unload  or switch controllers -->
+                          <arg name="moveit_manage_controllers" default="true"/>
+                          <param name="moveit_manage_controllers" value="$(arg moveit_manage_controllers)"/>
+
+                          <!-- When determining the expected duration of a trajectory, this multiplicative factor is applied to get the allowed duration of execution -->
+                          <param name="allowed_execution_duration_scaling" value="1.2"/> <!-- default 1.2 -->
+                          <!-- Allow more than the expected execution time before triggering a trajectory cancel (applied after scaling) -->
+                          <param name="allowed_goal_duration_margin" value="0.5"/> <!-- default 0.5 -->
+                          
+                          <!-- Load the robot specific controller manager; this sets the moveit_controller_manager ROS parameter -->
+                          <arg name="moveit_controller_manager" default="mm" />
+                          <include file="$(find mm_moveit_config)/launch/$(arg moveit_controller_manager)_moveit_controller_manager.launch.xml" >
+                                <!-- ########### $(find mm_moveit_config)/launch/$(arg moveit_controller_manager)_moveit_controller_manager.launch.xml -->
+                                <launch>
+                                  <rosparam file="$(find mm_moveit_config)/config/controllers.yaml"/>
+                                  <param name="use_controller_manager" value="false"/>
+                                  <param name="trajectory_execution/execution_duration_monitoring" value="false"/>
+                                  <param name="moveit_controller_manager" value="moveit_simple_controller_manager/MoveItSimpleControllerManager"/>
+                                </launch>
+                                <!-- ########### end of $(find mm_moveit_config)/launch/$(arg moveit_controller_manager)_moveit_controller_manager.launch.xml -->
+                          </include>
+                        </launch>
+                        <!-- ########### end of $(find mm_moveit_config)/launch/trajectory_execution.launch.xml -->
+              </include>
+
+              <!-- Sensors Functionality -->
+              <include ns="move_group" file="$(find mm_moveit_config)/launch/sensor_manager.launch.xml" if="$(arg allow_trajectory_execution)">
+                <arg name="moveit_sensor_manager" value="mm" />
+                        <!-- ########### $(find mm_moveit_config)/launch/sensor_manager.launch.xml -->
+                        <launch>
+                          <!-- This file makes it easy to include the settings for sensor managers -->  
+
+                          <!-- Params for the octomap monitor -->
+                          <!--  <param name="octomap_frame" type="string" value="some frame in which the robot moves" /> -->
+                          <param name="octomap_resolution" type="double" value="0.025" />
+                          <param name="max_range" type="double" value="5.0" />
+
+                          <!-- Load the robot specific sensor manager; this sets the moveit_sensor_manager ROS parameter -->
+                          <arg name="moveit_sensor_manager" default="mm" />
+                          <include file="$(find mm_moveit_config)/launch/$(arg moveit_sensor_manager)_moveit_sensor_manager.launch.xml" >
+                                <!-- ########### $(find mm_moveit_config)/launch/$(arg moveit_sensor_manager)_moveit_sensor_manager.launch.xml -->
+                                <launch>
+
+                                </launch>
+                                <!-- ########### end of $(find mm_moveit_config)/launch/$(arg moveit_sensor_manager)_moveit_sensor_manager.launch.xml -->
+                          </include>
+                        </launch>
+                        <!-- ########### end of $(find mm_moveit_config)/launch/sensor_manager.launch.xml -->
+              </include>
+
+              <!-- Start the actual move_group node/action server -->
+              <node name="move_group" launch-prefix="$(arg launch_prefix)" pkg="moveit_ros_move_group" type="move_group" respawn="false" output="screen" args="$(arg command_args)">
+                <!-- Set the display variable, in case OpenGL code is used internally -->
+                <env name="DISPLAY" value="$(optenv DISPLAY :0)" />
+
+                <param name="allow_trajectory_execution" value="$(arg allow_trajectory_execution)"/>
+                <param name="max_safe_path_cost" value="$(arg max_safe_path_cost)"/>
+                <param name="jiggle_fraction" value="$(arg jiggle_fraction)" />
+
+                <!-- MoveGroup capabilities to load -->
+                <param name="capabilities" value="move_group/MoveGroupCartesianPathService
+				                  move_group/MoveGroupExecuteService
+				                  move_group/MoveGroupKinematicsService
+				                  move_group/MoveGroupMoveAction
+				                  move_group/MoveGroupPickPlaceAction
+				                  move_group/MoveGroupPlanService
+				                  move_group/MoveGroupQueryPlannersService
+				                  move_group/MoveGroupStateValidationService
+				                  move_group/MoveGroupGetPlanningSceneService
+				                  move_group/ApplyPlanningSceneService
+				                  move_group/ClearOctomapService
+				                  " />
+
+                <!-- Publish the planning scene of the physical robot so that rviz plugin can know actual robot -->
+                <param name="planning_scene_monitor/publish_planning_scene" value="$(arg publish_monitored_planning_scene)" />
+                <param name="planning_scene_monitor/publish_geometry_updates" value="$(arg publish_monitored_planning_scene)" />
+                <param name="planning_scene_monitor/publish_state_updates" value="$(arg publish_monitored_planning_scene)" />
+                <param name="planning_scene_monitor/publish_transforms_updates" value="$(arg publish_monitored_planning_scene)" />
+              </node>
+
+            </launch>
+            <!-- ########### end of $(find mm_moveit_config)/launch/move_group.launch -->
+  </include>
+
+  <!-- Run Rviz and load the default config to see the state of the move_group node -->
+  <include file="$(find mm_moveit_config)/launch/moveit_rviz.launch">
+    <arg name="config" value="true"/>
+    <arg name="debug" value="$(arg debug)"/>
+            <!-- ########### $(find mm_moveit_config)/launch/moveit_rviz.launch -->
+            <launch>
+              <arg name="debug" default="false" />
+              <arg unless="$(arg debug)" name="launch_prefix" value="" />
+              <arg     if="$(arg debug)" name="launch_prefix" value="gdb --ex run --args" />
+
+              <arg name="config" default="false" />
+              <arg unless="$(arg config)" name="command_args" value="" />
+              <arg     if="$(arg config)" name="command_args" value="-d $(find mm_moveit_config)/launch/moveit.rviz" />
+              
+              <node name="$(anon rviz)" launch-prefix="$(arg launch_prefix)" pkg="rviz" type="rviz" respawn="false"
+	            args="$(arg command_args)" output="screen">
+                <rosparam command="load" file="$(find mm_moveit_config)/config/kinematics.yaml"/>
+              </node>
+            </launch>
+            <!-- ########### end of $(find mm_moveit_config)/launch/moveit_rviz.launch -->
+  </include>
+
+  <!-- If database loading was enabled, start mongodb as well -->
+  <include file="$(find mm_moveit_config)/launch/default_warehouse_db.launch" if="$(arg db)">
+    <arg name="moveit_warehouse_database_path" value="$(arg db_path)"/>
+            <!-- ########### $(find mm_moveit_config)/launch/default_warehouse_db.launch -->
+            <launch>
+              <arg name="reset" default="false"/>
+              <!-- If not specified, we'll use a default database location -->
+              <arg name="moveit_warehouse_database_path" default="$(find mm_moveit_config)/default_warehouse_mongo_db" />
+
+              <!-- Launch the warehouse with the configured database location -->
+              <include file="$(find mm_moveit_config)/launch/warehouse.launch">
+                <arg name="moveit_warehouse_database_path" value="$(arg moveit_warehouse_database_path)" />
+                        <!-- ########### $(find mm_moveit_config)/launch/warehouse.launch -->
+                        <launch>                         
+                          <!-- The path to the database must be specified -->
+                          <arg name="moveit_warehouse_database_path" />
+
+                          <!-- Load warehouse parameters -->  
+                          <include file="$(find mm_moveit_config)/launch/warehouse_settings.launch.xml" />
+
+                          <!-- Run the DB server -->
+                          <node name="$(anon mongo_wrapper_ros)" cwd="ROS_HOME" type="mongo_wrapper_ros.py" pkg="warehouse_ros">
+                            <param name="overwrite" value="false"/>
+                            <param name="database_path" value="$(arg moveit_warehouse_database_path)" />
+                          </node>
+                        </launch>
+                        <!-- ########### end of $(find mm_moveit_config)/launch/warehouse.launch -->
+              </include>
+
+              <!-- If we want to reset the database, run this node -->
+              <node if="$(arg reset)" name="$(anon moveit_default_db_reset)" type="moveit_init_demo_warehouse" pkg="moveit_ros_warehouse" respawn="false" output="screen" />
+            </launch>
+            <!-- ########### end of $(find mm_moveit_config)/launch/default_warehouse_db.launch -->
+  </include>
+
+</launch>
